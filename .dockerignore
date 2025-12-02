@@ -1,0 +1,16 @@
+node_modules
+dist
+data
+.git
+.gitignore
+.env
+.env.local
+*.log
+.DS_Store
+app-portatil
+README*.md
+LEIA-ME*.txt
+build-portable.js
+server-portable.js
+iniciar-app*.bat
+

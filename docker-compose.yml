@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  financas-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: financas-app
+    ports:
+      - "4173:4173"
+    volumes:
+      # Volume para persistir o banco de dados SQLite
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - PORT=4173
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4173/api/categories"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
