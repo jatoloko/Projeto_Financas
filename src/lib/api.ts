@@ -47,6 +47,28 @@ export async function createTransaction(data: {
   return response.json()
 }
 
+export async function updateTransaction(
+  id: string,
+  data: {
+    description: string
+    amount: number
+    type: 'income' | 'expense'
+    category?: string
+    subcategory?: string
+  }
+): Promise<Transaction> {
+  const response = await fetch(`${API_BASE_URL}/transactions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Erro ao atualizar transação')
+  }
+  return response.json()
+}
+
 export async function deleteTransaction(id: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/transactions/${id}`, {
     method: 'DELETE',

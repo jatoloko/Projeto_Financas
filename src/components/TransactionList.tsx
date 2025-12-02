@@ -13,9 +13,10 @@ export interface Transaction {
 interface TransactionListProps {
   transactions: Transaction[]
   onDelete: (id: string) => void
+  onEdit?: (transaction: Transaction) => void
 }
 
-export function TransactionList({ transactions, onDelete }: TransactionListProps) {
+export function TransactionList({ transactions, onDelete, onEdit }: TransactionListProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -77,14 +78,26 @@ export function TransactionList({ transactions, onDelete }: TransactionListProps
                   {transaction.type === 'income' ? '+' : '-'}
                   {formatCurrency(Math.abs(transaction.amount))}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDelete(transaction.id)}
-                  className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                >
-                  Excluir
-                </Button>
+                <div className="flex gap-2">
+                  {onEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onEdit(transaction)}
+                      className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Editar
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDelete(transaction.id)}
+                    className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                  >
+                    Excluir
+                  </Button>
+                </div>
               </div>
             </div>
           ))}

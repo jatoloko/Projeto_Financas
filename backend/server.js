@@ -83,8 +83,30 @@ app.post('/api/transactions', (req, res) => {
   try {
     const { description, amount, type, category, subcategory } = req.body
 
-    if (!description || amount === undefined || !type) {
-      return res.status(400).json({ error: 'Campos obrigatórios faltando' })
+    // Validações
+    if (!description || typeof description !== 'string' || description.trim() === '') {
+      return res.status(400).json({ error: 'Descrição é obrigatória e deve ser um texto válido' })
+    }
+
+    if (amount === undefined || amount === null) {
+      return res.status(400).json({ error: 'Valor é obrigatório' })
+    }
+
+    const amountNum = typeof amount === 'string' ? parseFloat(amount) : amount
+    if (isNaN(amountNum)) {
+      return res.status(400).json({ error: 'Valor deve ser um número válido' })
+    }
+
+    if (amountNum <= 0) {
+      return res.status(400).json({ error: 'Valor deve ser maior que zero' })
+    }
+
+    if (amountNum > 1000000000) {
+      return res.status(400).json({ error: 'Valor muito alto (máximo: R$ 1.000.000.000)' })
+    }
+
+    if (!type || (type !== 'income' && type !== 'expense')) {
+      return res.status(400).json({ error: 'Tipo deve ser "income" ou "expense"' })
     }
 
     // Buscar IDs das categorias
@@ -113,12 +135,106 @@ app.post('/api/transactions', (req, res) => {
 
     db.prepare(
       'INSERT INTO transactions (id, description, amount, type, category_id, subcategory_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, description, amount, type, categoryId, subcategoryId, createdAt)
+    ).run(id, description.trim(), Math.abs(amountNum), type, categoryId, subcategoryId, createdAt)
 
-    res.status(201).json({ id, description, amount, type, category: category || 'Outros', created_at: createdAt })
+    res.status(201).json({ id, description: description.trim(), amount: Math.abs(amountNum), type, category: category || 'Outros', created_at: createdAt })
   } catch (error) {
     console.error('Erro ao criar transação:', error)
     res.status(500).json({ error: 'Erro ao criar transação' })
+  }
+})
+
+app.put('/api/transactions/:id', (req, res) => {
+  try {
+    const { id } = req.params
+    const { description, amount, type, category, subcategory } = req.body
+
+    // Validações
+    if (!description || typeof description !== 'string' || description.trim() === '') {
+      return res.status(400).json({ error: 'Descrição é obrigatória e deve ser um texto válido' })
+    }
+
+    if (amount === undefined || amount === null) {
+      return res.status(400).json({ error: 'Valor é obrigatório' })
+    }
+
+    const amountNum = typeof amount === 'string' ? parseFloat(amount) : amount
+    if (isNaN(amountNum)) {
+      return res.status(400).json({ error: 'Valor deve ser um número válido' })
+    }
+
+    if (amountNum <= 0) {
+      return res.status(400).json({ error: 'Valor deve ser maior que zero' })
+    }
+
+    if (amountNum > 1000000000) {
+      return res.status(400).json({ error: 'Valor muito alto (máximo: R$ 1.000.000.000)' })
+    }
+
+    if (!type || (type !== 'income' && type !== 'expense')) {
+      return res.status(400).json({ error: 'Tipo deve ser "income" ou "expense"' })
+    }
+
+    // Verificar se transação existe
+    const existing = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id)
+    if (!existing) {
+      return res.status(404).json({ error: 'Transação não encontrada' })
+    }
+
+    // Buscar IDs das categorias
+    let categoryId = null
+    let subcategoryId = null
+
+    if (category) {
+      const catParts = category.split(' > ')
+      const mainCat = catParts[0]
+      const subCat = catParts[1]
+
+      const cat = db.prepare('SELECT id FROM categories WHERE name = ? AND type = ?').get(mainCat, type)
+      if (cat) {
+        categoryId = cat.id
+        if (subCat) {
+          const sub = db
+            .prepare('SELECT id FROM categories WHERE name = ? AND parent_id = ?')
+            .get(subCat, categoryId)
+          if (sub) subcategoryId = sub.id
+        }
+      }
+    }
+
+    const result = db
+      .prepare(
+        'UPDATE transactions SET description = ?, amount = ?, type = ?, category_id = ?, subcategory_id = ? WHERE id = ?'
+      )
+      .run(description.trim(), Math.abs(amountNum), type, categoryId, subcategoryId, id)
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Transação não encontrada' })
+    }
+
+    // Buscar transação atualizada
+    const updated = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id)
+    let categoryName = 'Outros'
+    if (updated.category_id) {
+      const cat = db.prepare('SELECT name FROM categories WHERE id = ?').get(updated.category_id)
+      if (cat) categoryName = cat.name
+    }
+    if (updated.subcategory_id) {
+      const sub = db.prepare('SELECT name FROM categories WHERE id = ?').get(updated.subcategory_id)
+      if (sub) categoryName = `${categoryName} > ${sub.name}`
+    }
+
+    res.json({
+      id: updated.id,
+      description: updated.description,
+      amount: updated.amount,
+      type: updated.type,
+      category: categoryName,
+      created_at: updated.created_at,
+    })
+  } catch (error) {
+    console.error('Erro ao atualizar transação:', error)
+    res.status(500).json({ error: 'Erro ao atualizar transação' })
   }
 })
 
@@ -178,8 +294,17 @@ app.post('/api/categories', (req, res) => {
   try {
     const { name, type, parentId } = req.body
 
-    if (!name || !type) {
-      return res.status(400).json({ error: 'Nome e tipo são obrigatórios' })
+    // Validações
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ error: 'Nome da categoria é obrigatório' })
+    }
+
+    if (!type || (type !== 'income' && type !== 'expense')) {
+      return res.status(400).json({ error: 'Tipo deve ser "income" ou "expense"' })
+    }
+
+    if (name.trim().length > 100) {
+      return res.status(400).json({ error: 'Nome da categoria muito longo (máximo: 100 caracteres)' })
     }
 
     const id = `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -187,13 +312,13 @@ app.post('/api/categories', (req, res) => {
 
     db.prepare('INSERT INTO categories (id, name, type, parent_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
       id,
-      name,
+      name.trim(),
       type,
       parentId || null,
       createdAt
     )
 
-    res.status(201).json({ id, name, type, parentId: parentId || null })
+    res.status(201).json({ id, name: name.trim(), type, parentId: parentId || null })
   } catch (error) {
     console.error('Erro ao criar categoria:', error)
     res.status(500).json({ error: 'Erro ao criar categoria' })
@@ -205,15 +330,28 @@ app.put('/api/categories/:id', (req, res) => {
     const { id } = req.params
     const { name, type, parentId } = req.body
 
+    // Validações
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ error: 'Nome da categoria é obrigatório' })
+    }
+
+    if (!type || (type !== 'income' && type !== 'expense')) {
+      return res.status(400).json({ error: 'Tipo deve ser "income" ou "expense"' })
+    }
+
+    if (name.trim().length > 100) {
+      return res.status(400).json({ error: 'Nome da categoria muito longo (máximo: 100 caracteres)' })
+    }
+
     const result = db
       .prepare('UPDATE categories SET name = ?, type = ?, parent_id = ? WHERE id = ?')
-      .run(name, type, parentId || null, id)
+      .run(name.trim(), type, parentId || null, id)
 
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Categoria não encontrada' })
     }
 
-    res.json({ id, name, type, parentId: parentId || null })
+    res.json({ id, name: name.trim(), type, parentId: parentId || null })
   } catch (error) {
     console.error('Erro ao atualizar categoria:', error)
     res.status(500).json({ error: 'Erro ao atualizar categoria' })

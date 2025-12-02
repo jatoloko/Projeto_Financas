@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getCategories, createCategory, updateCategory, deleteCategory, type Category } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +16,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function Categories() {
-  const [categories, setCategories] = useState<Category[]>([])
+  const queryClient = useQueryClient()
   const [activeType, setActiveType] = useState<'income' | 'expense'>('income')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
@@ -25,19 +26,38 @@ export function Categories() {
     parentId: '',
   })
 
-  const loadCategories = async () => {
-    try {
-      const cats = await getCategories(activeType)
-      setCategories(cats)
-    } catch (error) {
-      console.error('Erro ao carregar categorias:', error)
-    }
-  }
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories', activeType],
+    queryFn: () => getCategories(activeType),
+  })
 
-  useEffect(() => {
-    loadCategories()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeType])
+  const createMutation = useMutation({
+    mutationFn: createCategory,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      setFormData({ name: '', type: 'income', parentId: '' })
+      setEditingCategory(null)
+      setDialogOpen(false)
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateCategory>[1] }) =>
+      updateCategory(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      setFormData({ name: '', type: 'income', parentId: '' })
+      setEditingCategory(null)
+      setDialogOpen(false)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteCategory,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,23 +65,21 @@ export function Categories() {
 
     try {
       if (editingCategory) {
-        await updateCategory(editingCategory.id, {
-          name: formData.name,
-          type: formData.type,
-          parentId: formData.parentId || null,
+        await updateMutation.mutateAsync({
+          id: editingCategory.id,
+          data: {
+            name: formData.name,
+            type: formData.type,
+            parentId: formData.parentId || null,
+          },
         })
       } else {
-        await createCategory({
+        await createMutation.mutateAsync({
           name: formData.name,
           type: formData.type,
           parentId: formData.parentId || null,
         })
       }
-
-      setFormData({ name: '', type: 'income', parentId: '' })
-      setEditingCategory(null)
-      setDialogOpen(false)
-      loadCategories()
     } catch (error: any) {
       alert('Erro ao salvar categoria: ' + error.message)
     }
@@ -81,8 +99,7 @@ export function Categories() {
     if (!confirm('Tem certeza que deseja excluir esta categoria?')) return
 
     try {
-      await deleteCategory(id)
-      loadCategories()
+      await deleteMutation.mutateAsync(id)
     } catch (error: any) {
       alert('Erro ao excluir categoria: ' + error.message)
     }

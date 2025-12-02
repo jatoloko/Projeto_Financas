@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
-import { createTransaction, getCategories, type Category } from '@/lib/api'
+import { updateTransaction, getCategories, type Category } from '@/lib/api'
+import type { Transaction } from '@/components/TransactionList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,17 +12,23 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 
-interface TransactionFormProps {
+interface EditTransactionDialogProps {
+  transaction: Transaction | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
 }
 
-export function TransactionForm({ onSuccess }: TransactionFormProps) {
+export function EditTransactionDialog({
+  transaction,
+  open,
+  onOpenChange,
+  onSuccess,
+}: EditTransactionDialogProps) {
   const { user } = useAuth()
   const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
   const [subcategories, setSubcategories] = useState<Category[]>([])
   const [formData, setFormData] = useState({
     description: '',
@@ -37,35 +45,48 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
     enabled: open && !!user,
   })
 
-  const createMutation = useMutation({
-    mutationFn: createTransaction,
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateTransaction>[1] }) =>
+      updateTransaction(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      setFormData({
-        description: '',
-        amount: '',
-        type: 'expense',
-        category: '',
-        subcategory: '',
-      })
       setErrors({})
-      setOpen(false)
+      onOpenChange(false)
       onSuccess()
     },
   })
 
   useEffect(() => {
-    if (open && user) {
-      setSubcategories([])
-      setFormData((prev) => ({ ...prev, category: '', subcategory: '' }))
+    if (transaction && open) {
+      // Parsear categoria (formato: "Categoria > Subcategoria" ou apenas "Categoria")
+      const categoryParts = transaction.category.split(' > ')
+      const mainCategoryName = categoryParts[0]
+      const subcategoryName = categoryParts[1]
+
+      // Encontrar IDs das categorias
+      const mainCategory = categories.find((c) => c.name === mainCategoryName && !c.parentId)
+      const subcategory = subcategoryName
+        ? categories.find((c) => c.name === subcategoryName && c.parentId === mainCategory?.id)
+        : null
+
+      setFormData({
+        description: transaction.description,
+        amount: transaction.amount.toString(),
+        type: transaction.type,
+        category: mainCategory?.id || '',
+        subcategory: subcategory?.id || '',
+      })
+      setErrors({})
     }
-  }, [formData.type, open, user])
+  }, [transaction, open, categories])
 
   useEffect(() => {
     if (formData.category && categories.length > 0) {
       const selectedCat = categories.find((c) => c.id === formData.category)
       setSubcategories(selectedCat?.subcategories || [])
-      setFormData((prev) => ({ ...prev, subcategory: '' }))
+      if (!selectedCat?.subcategories?.find((s) => s.id === formData.subcategory)) {
+        setFormData((prev) => ({ ...prev, subcategory: '' }))
+      }
     } else {
       setSubcategories([])
     }
@@ -97,7 +118,7 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
+    if (!user || !transaction) return
 
     if (!validateForm()) {
       return
@@ -105,7 +126,7 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
 
     setErrors({})
     try {
-      const amountValue = Math.abs(parseFloat(formData.amount)) // Garantir valor positivo
+      const amountValue = Math.abs(parseFloat(formData.amount))
       const categoryName = formData.category
         ? categories.find((c) => c.id === formData.category)?.name
         : undefined
@@ -115,33 +136,35 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
 
       const fullCategory = subcategoryName ? `${categoryName} > ${subcategoryName}` : categoryName
 
-      await createMutation.mutateAsync({
-        description: formData.description.trim(),
-        amount: amountValue,
-        type: formData.type,
-        category: fullCategory,
-        subcategory: subcategoryName,
+      await updateMutation.mutateAsync({
+        id: transaction.id,
+        data: {
+          description: formData.description.trim(),
+          amount: amountValue,
+          type: formData.type,
+          category: fullCategory,
+          subcategory: subcategoryName,
+        },
       })
     } catch (error: any) {
-      setErrors({ submit: error.message || 'Erro ao criar transação' })
+      setErrors({ submit: error.message || 'Erro ao atualizar transação' })
     }
   }
 
+  if (!transaction) return null
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>Nova Transação</Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nova Transação</DialogTitle>
-          <DialogDescription>Adicione uma nova receita ou despesa</DialogDescription>
+          <DialogTitle>Editar Transação</DialogTitle>
+          <DialogDescription>Edite os dados da transação</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="type">Tipo</Label>
+            <Label htmlFor="edit-type">Tipo</Label>
             <select
-              id="type"
+              id="edit-type"
               value={formData.type}
               onChange={(e) =>
                 setFormData({ ...formData, type: e.target.value as 'income' | 'expense' })
@@ -153,9 +176,9 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Descrição</Label>
+            <Label htmlFor="edit-description">Descrição</Label>
             <Input
-              id="description"
+              id="edit-description"
               value={formData.description}
               onChange={(e) => {
                 setFormData({ ...formData, description: e.target.value })
@@ -170,16 +193,15 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="amount">Valor</Label>
+            <Label htmlFor="edit-amount">Valor</Label>
             <Input
-              id="amount"
+              id="edit-amount"
               type="number"
               step="0.01"
               min="0.01"
               value={formData.amount}
               onChange={(e) => {
                 const value = e.target.value
-                // Permitir apenas números positivos
                 if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
                   setFormData({ ...formData, amount: value })
                   if (errors.amount) setErrors({ ...errors, amount: '' })
@@ -194,9 +216,9 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="category">Categoria</Label>
+            <Label htmlFor="edit-category">Categoria</Label>
             <select
-              id="category"
+              id="edit-category"
               value={formData.category}
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
               className="w-full p-2 border rounded-md bg-white dark:bg-white text-gray-900 dark:text-gray-900"
@@ -211,9 +233,9 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
           </div>
           {subcategories.length > 0 && (
             <div className="space-y-2">
-              <Label htmlFor="subcategory">Subcategoria (opcional)</Label>
+              <Label htmlFor="edit-subcategory">Subcategoria (opcional)</Label>
               <select
-                id="subcategory"
+                id="edit-subcategory"
                 value={formData.subcategory}
                 onChange={(e) => setFormData({ ...formData, subcategory: e.target.value })}
                 className="w-full p-2 border rounded-md bg-white dark:bg-white text-gray-900 dark:text-gray-900"
@@ -232,13 +254,22 @@ export function TransactionForm({ onSuccess }: TransactionFormProps) {
               <p className="text-sm text-red-600 dark:text-red-400">{errors.submit}</p>
             </div>
           )}
-          <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Salvando...' : 'Salvar'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" className="flex-1" disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? 'Salvando...' : 'Salvar'}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
   )
 }
-
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { PeriodSelector } from '@/components/PeriodSelector'
 import { TransactionForm } from '@/components/TransactionForm'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -30,6 +31,7 @@ export function MainLayout({
               <div className="flex gap-2 flex-wrap">
                 <PeriodSelector />
                 <TransactionForm onSuccess={onTransactionAdded} />
+                <ThemeToggle />
               </div>
             </div>
 

@@ -1,67 +1,66 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePeriod } from '@/contexts/PeriodContext'
 import { getTransactions, deleteTransaction } from '@/lib/api'
 import { TransactionList } from '@/components/TransactionList'
 import type { Transaction } from '@/components/TransactionList'
 import { SummaryCard } from '@/components/SummaryCard'
+import { EditTransactionDialog } from '@/components/EditTransactionDialog'
+import { TransactionSkeleton } from '@/components/TransactionSkeleton'
+import { SummaryCardSkeleton } from '@/components/SummaryCardSkeleton'
 
 export function Dashboard() {
   const { user } = useAuth()
   const { currentMonth, currentYear } = usePeriod()
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState({
-    income: 0,
-    expense: 0,
-    balance: 0,
+  const queryClient = useQueryClient()
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+
+  const month = `${currentYear}-${String(currentMonth).padStart(2, '0')}`
+
+  const { data: transactions = [], isLoading } = useQuery({
+    queryKey: ['transactions', month],
+    queryFn: () => getTransactions(month),
+    enabled: !!user,
   })
 
-  const fetchTransactions = async () => {
-    if (!user) return
+  const deleteMutation = useMutation({
+    mutationFn: deleteTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+    },
+  })
 
-    try {
-      const month = `${currentYear}-${String(currentMonth).padStart(2, '0')}`
-      const data = await getTransactions(month)
+  const summary = useMemo(() => {
+    const income = transactions
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0)
 
-      setTransactions(data)
+    const expense = transactions
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0)
 
-      const income = data
-        .filter((t) => t.type === 'income')
-        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0)
-
-      const expense = data
-        .filter((t) => t.type === 'expense')
-        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0)
-
-      setSummary({
-        income,
-        expense,
-        balance: income - expense,
-      })
-    } catch (error: any) {
-      console.error('Erro ao buscar transações:', error)
-    } finally {
-      setLoading(false)
+    return {
+      income,
+      expense,
+      balance: income - expense,
     }
-  }
-
-  useEffect(() => {
-    if (user) {
-      fetchTransactions()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, currentMonth, currentYear])
+  }, [transactions])
 
   const handleDelete = async (id: string) => {
     if (!confirm('Tem certeza que deseja excluir esta transação?')) return
 
     try {
-      await deleteTransaction(id)
-      fetchTransactions()
+      await deleteMutation.mutateAsync(id)
     } catch (error: any) {
       alert('Erro ao excluir transação: ' + error.message)
     }
+  }
+
+  const handleEdit = (transaction: Transaction) => {
+    setEditingTransaction(transaction)
+    setEditDialogOpen(true)
   }
 
   const formatCurrency = (value: number) => {
@@ -71,10 +70,11 @@ export function Dashboard() {
     }).format(value)
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p>Carregando...</p>
+      <div className="space-y-6">
+        <SummaryCardSkeleton />
+        <TransactionSkeleton />
       </div>
     )
   }
@@ -107,6 +107,14 @@ export function Dashboard() {
       <TransactionList
         transactions={transactions.slice(0, 10)}
         onDelete={handleDelete}
+        onEdit={handleEdit}
+      />
+
+      <EditTransactionDialog
+        transaction={editingTransaction}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        onSuccess={() => {}}
       />
     </div>
   )
